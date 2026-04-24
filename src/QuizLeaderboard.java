@@ -10,12 +10,12 @@ import java.util.*;
  *
  * How it works:
  *  1. Polls GET /quiz/messages?regNo=<REG_NO>&poll=0..9  (10 times, 5s delay each)
- *  2. Deduplicates events by composite key: roundId + "|" + participant
+ *  2. Deduplicates events using composite key: roundId + "|" + participant
  *  3. Aggregates totalScore per participant
  *  4. Sorts leaderboard by totalScore descending
  *  5. Submits the result once via POST /quiz/submit
  *
- * No external libraries needed. Compile and run with plain javac/java.
+ * No external libraries needed — compile and run with plain javac / java (JDK 11+).
  */
 public class QuizLeaderboard {
 
@@ -23,7 +23,7 @@ public class QuizLeaderboard {
     private static final String BASE_URL    = "https://devapigw.vidalhealthtpa.com/srm-quiz-task";
     private static final String REG_NO      = "2024CS101"; // <-- change to your reg number
     private static final int    TOTAL_POLLS = 10;
-    private static final long   DELAY_MS    = 5_000L;     // 5 seconds between polls
+    private static final long   DELAY_MS    = 5_000L;      // 5 seconds between polls
     // ────────────────────────────────────────────────────────────────────────
 
     public static void main(String[] args) throws Exception {
@@ -35,7 +35,7 @@ public class QuizLeaderboard {
         System.out.println("Total Polls     : " + TOTAL_POLLS);
         System.out.println();
 
-        // STEP 1 - Poll API 10 times
+        // STEP 1 — Poll API 10 times (poll indices 0 through 9)
         List<String> rawResponses = new ArrayList<>();
         for (int poll = 0; poll < TOTAL_POLLS; poll++) {
             String url = BASE_URL + "/quiz/messages?regNo=" + REG_NO + "&poll=" + poll;
@@ -50,26 +50,26 @@ public class QuizLeaderboard {
             }
         }
 
-        // STEP 2 - Parse + Deduplicate  (key = "roundId|participant")
-        // Using LinkedHashMap keeps insertion order; putIfAbsent ignores duplicates
+        // STEP 2 — Parse all responses and deduplicate
+        // Key = "roundId|participant" — putIfAbsent keeps only the first occurrence
         Map<String, Integer> dedupMap = new LinkedHashMap<>();
         for (String response : rawResponses) {
             parseEvents(response, dedupMap);
         }
-        System.out.println("\nUnique events after deduplication: " + dedupMap.size());
+        System.out.println("\nUnique (roundId, participant) pairs after deduplication: " + dedupMap.size());
 
-        // STEP 3 - Aggregate scores per participant
+        // STEP 3 — Aggregate total score per participant
         Map<String, Integer> scoreMap = new LinkedHashMap<>();
         for (Map.Entry<String, Integer> entry : dedupMap.entrySet()) {
             String participant = entry.getKey().split("\\|")[1];
             scoreMap.merge(participant, entry.getValue(), Integer::sum);
         }
 
-        // STEP 4 - Sort leaderboard descending by totalScore
+        // STEP 4 — Sort leaderboard by totalScore descending
         List<Map.Entry<String, Integer>> leaderboard = new ArrayList<>(scoreMap.entrySet());
         leaderboard.sort((a, b) -> b.getValue() - a.getValue());
 
-        // Print leaderboard to console
+        // Print leaderboard
         int combinedTotal = 0;
         System.out.println("\n==============================================");
         System.out.println("  LEADERBOARD");
@@ -82,30 +82,37 @@ public class QuizLeaderboard {
             combinedTotal += e.getValue();
         }
         System.out.println("----------------------------------------------");
-        System.out.println("Combined Total Score: " + combinedTotal);
+        System.out.println("Combined Total Score : " + combinedTotal);
         System.out.println("==============================================\n");
 
-        // STEP 5 - Submit once
+        // STEP 5 — Submit exactly once
         submit(leaderboard);
     }
 
-    // ── Parse events array from one poll response and deduplicate ────────────
+    // ── Parse the "events" array out of one poll response and deduplicate ───
     private static void parseEvents(String json, Map<String, Integer> dedupMap) {
+        // Find the "events" key
         int evStart = json.indexOf("\"events\"");
         if (evStart == -1) return;
 
-        int arrOpen  = json.indexOf('[', evStart);
-        int arrClose = json.lastIndexOf(']');
-        if (arrOpen == -1 || arrClose == -1) return;
+        // Find the opening '[' of the events array
+        int arrOpen = json.indexOf('[', evStart);
+        if (arrOpen == -1) return;
+
+        // Find the MATCHING closing ']' (not just the last one in the string)
+        int arrClose = findMatchingBracket(json, arrOpen);
+        if (arrClose == -1) return;
 
         String body = json.substring(arrOpen + 1, arrClose);
 
-        // Split into individual { } objects
+        // Walk through the body and extract each { } event object
         int depth = 0, start = -1;
         for (int i = 0; i < body.length(); i++) {
             char c = body.charAt(i);
-            if (c == '{') { if (depth == 0) start = i; depth++; }
-            else if (c == '}') {
+            if (c == '{') {
+                if (depth == 0) start = i;
+                depth++;
+            } else if (c == '}') {
                 depth--;
                 if (depth == 0 && start != -1) {
                     processEvent(body.substring(start, i + 1), dedupMap);
@@ -115,6 +122,23 @@ public class QuizLeaderboard {
         }
     }
 
+    /**
+     * Given a string and the index of an opening '[', returns the index of its
+     * matching ']', accounting for nesting. Returns -1 if not found.
+     */
+    private static int findMatchingBracket(String s, int openIdx) {
+        int depth = 0;
+        for (int i = openIdx; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '[') depth++;
+            else if (c == ']') {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
     private static void processEvent(String obj, Map<String, Integer> dedupMap) {
         String roundId     = field(obj, "roundId");
         String participant = field(obj, "participant");
@@ -122,11 +146,11 @@ public class QuizLeaderboard {
 
         if (roundId == null || participant == null) return;
 
-        // putIfAbsent → first occurrence wins; later duplicates are ignored
+        // putIfAbsent → first occurrence wins; any duplicate is silently ignored
         dedupMap.putIfAbsent(roundId + "|" + participant, score);
     }
 
-    // ── Submit leaderboard ───────────────────────────────────────────────────
+    // ── Submit the leaderboard once ──────────────────────────────────────────
     private static void submit(List<Map.Entry<String, Integer>> leaderboard) throws IOException {
         StringBuilder body = new StringBuilder();
         body.append("{\"regNo\":\"").append(REG_NO).append("\",\"leaderboard\":[");
@@ -138,11 +162,11 @@ public class QuizLeaderboard {
         }
         body.append("]}");
 
-        System.out.println("Submitting...");
-        System.out.println("Request: " + body);
+        System.out.println("Submitting leaderboard...");
+        System.out.println("Request body : " + body);
 
         String response = httpPost(BASE_URL + "/quiz/submit", body.toString());
-        System.out.println("Response: " + response);
+        System.out.println("Response     : " + response);
     }
 
     // ── HTTP helpers ─────────────────────────────────────────────────────────
@@ -152,8 +176,9 @@ public class QuizLeaderboard {
         conn.setRequestProperty("Accept", "application/json");
         conn.setConnectTimeout(15_000);
         conn.setReadTimeout(15_000);
-        if (conn.getResponseCode() != 200)
-            throw new IOException("GET " + urlStr + " -> HTTP " + conn.getResponseCode());
+        int status = conn.getResponseCode();
+        if (status != 200)
+            throw new IOException("GET " + urlStr + " -> HTTP " + status);
         return readAll(conn.getInputStream());
     }
 
@@ -165,13 +190,19 @@ public class QuizLeaderboard {
         conn.setConnectTimeout(15_000);
         conn.setReadTimeout(15_000);
         conn.setDoOutput(true);
-        conn.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+
+        // Write body and close the stream properly
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
+        }
 
         int status = conn.getResponseCode();
-        InputStream is = (status >= 200 && status < 300) ? conn.getInputStream() : conn.getErrorStream();
+        InputStream is = (status >= 200 && status < 300)
+                ? conn.getInputStream()
+                : conn.getErrorStream();
         String response = readAll(is);
         if (status < 200 || status >= 300)
-            throw new IOException("POST returned HTTP " + status + ": " + response);
+            throw new IOException("POST " + urlStr + " -> HTTP " + status + " : " + response);
         return response;
     }
 
@@ -179,7 +210,7 @@ public class QuizLeaderboard {
         return new String(is.readAllBytes(), StandardCharsets.UTF_8);
     }
 
-    // ── Minimal JSON field extractors (no external libs needed) ─────────────
+    // ── Lightweight JSON field extractors (no external libs) ────────────────
     private static String field(String json, String key) {
         String k = "\"" + key + "\"";
         int i = json.indexOf(k);
