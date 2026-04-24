@@ -170,5 +170,5 @@ Response: {"isCorrect":true,"isIdempotent":true,"submittedTotal":180,"expectedTo
 ## Author
 
 **Divyanshu Singh**  
-B.Tech — Computational and Data Science  
-Indian Institute of Science, Bangalore
+B.Tech — CSE with spealisation in AI/ML
+SRMIST Kattankulathur Chennai
