@@ -21,7 +21,7 @@ public class QuizLeaderboard {
 
     // ── CONFIG ── update REG_NO before running ──────────────────────────────
     private static final String BASE_URL    = "https://devapigw.vidalhealthtpa.com/srm-quiz-task";
-    private static final String REG_NO      = "2024CS101"; // <-- change to your reg number
+    private static final String REG_NO      = "RA2311026010404"; // <-- change to your reg number
     private static final int    TOTAL_POLLS = 10;
     private static final long   DELAY_MS    = 5_000L;      // 5 seconds between polls
     // ────────────────────────────────────────────────────────────────────────
